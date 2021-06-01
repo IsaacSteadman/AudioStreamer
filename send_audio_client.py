@@ -9,10 +9,10 @@ sock = None
 
 
 def read_thread(lst_sentinel):
-    q, audio = lst_sentinel[:2]
+    q, audio, exception_on_overflow, frames_per_block = lst_sentinel[:4]
     try:
         while lst_sentinel[-1]:
-            q.put(audio.read(audio._frames_per_buffer))
+            q.put(audio.read(frames_per_block, exception_on_overflow))
     finally:
         lst_sentinel[-1] = False
 
@@ -22,7 +22,10 @@ def main():
     global sock
     settings = load_settings({
         "host": "",
-        "port": "3123"
+        "port": "3123",
+        "exception_on_overflow": True,
+        "frames_per_block": None,
+        "max_input_channels": float("inf")
     })
     pa = pyaudio.PyAudio()
     dev_info = pick_device(pa, "input")
@@ -31,7 +34,7 @@ def main():
         input=True,
         input_device_index=dev_info["index"],
         rate=int(dev_info["defaultSampleRate"]),
-        channels=dev_info["maxInputChannels"],
+        channels=min(dev_info["maxInputChannels"], settings["max_input_channels"]),
         format=pyaudio.paInt16
     )
     host = input(f"Host [default {settings['host']}]: ")
@@ -53,9 +56,10 @@ def main():
             print("  FAILED: could not connect")
             continue
     assert sock is not None, "Could not find or connect to any hosts"
-    sock.sendall(st_init_audio_info.pack(audio._format, audio._channels - 1, audio._rate - 1, audio._frames_per_buffer - 1))
+    frames_per_block = audio._frames_per_buffer if settings["frames_per_block"] is None else settings["frames_per_block"]
+    sock.sendall(st_init_audio_info.pack(audio._format, audio._channels - 1, audio._rate - 1, frames_per_block - 1))
     q = Queue()
-    lst_sentinel = [q, audio, True]
+    lst_sentinel = [q, audio, settings["exception_on_overflow"], frames_per_block, True]
     thrd = Thread(target=read_thread, args=(lst_sentinel,))
     thrd.start()
     try:
