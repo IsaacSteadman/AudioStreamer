@@ -156,7 +156,8 @@ class App(object):
         sample_size = pyaudio.get_sample_size(fmt)
         size = num_samples_per_block * sample_size * nchannels
         chop_channels = nchannels > max_out_channels
-        print(f"[{repr(sock.getpeername())}] WARN: chopping {nchannels} channles down to {max_out_channels}")
+        if chop_channels:
+            print(f"[{repr(sock.getpeername())}] WARN: chopping {nchannels} channles down to {max_out_channels}")
         audio = self.pa.open(
             output_device_index=self.odev_idx,
             output=True,
