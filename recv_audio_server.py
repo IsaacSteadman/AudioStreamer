@@ -1,7 +1,8 @@
+from typing import List
 from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, error as socket_error, timeout as socket_timeout
 from queue import Queue
 from threading import Thread
-from audio_stream_common import st_init_audio_info, pyaudio, pick_device, load_settings
+from audio_stream_common import DevicePicker, st_init_audio_info, pyaudio, pick_device, load_settings
 from select import select
 from time import time
 from traceback import format_exc
@@ -22,13 +23,15 @@ class App(object):
         self.odev_idx = None
         self.max_out_channels = None
         self.settings = {}
+        self.dp = DevicePicker(self.pa, "output")
 
-    def init(self):
+    def init(self, argv: List[str]):
         self.settings = load_settings({
             "host": "",
-            "port": "3123"
+            "port": "3123",
+            "default_output_device_name_contains": ["Speakers"]
         })
-        dev_info = pick_device(self.pa, "output")
+        dev_info = self.dp.pick(not (len(argv) and argv[0] == "--use-defaults"))
         self.odev_idx = dev_info["index"]
         self.max_out_channels = dev_info["maxOutputChannels"]
 
@@ -184,6 +187,7 @@ class App(object):
         last_msg_ts = 0
         self.cleanup_handlers[sock] = cleanup
         thrd.start()
+        is_dropping = False
         while True:
             status = yield READABLE
             mv = memoryview(buf)
@@ -195,7 +199,7 @@ class App(object):
                 status = yield READABLE
                 bytes_read = sock.recv_into(mv, len(mv))
             now = time()
-            if q.qsize() < 10:
+            if q.qsize() < 10 and not is_dropping:
                 if chop_channels:
                     mv = memoryview(buf)
                     mv1 = memoryview(buf1)
@@ -206,6 +210,7 @@ class App(object):
                             mv1[base1 + j: base1 + j + sample_size] = mv[base + j: base + j + sample_size]
                 q.put(bytes(buf1))
             else:
+                is_dropping = q.qsize() > 2
                 if now - last_msg_ts < 5.0:
                     dropped_msg_count += 1
                     pass
@@ -222,6 +227,10 @@ class App(object):
 
 
 if __name__ == "__main__":
+    import sys
+    assert len(sys.argv) in [1, 2]
+    if len(sys.argv) == 2:
+        assert sys.argv[1] in ["--use-defaults"]
     app = App()
-    app.init()
+    app.init(sys.argv[1:])
     app.run_network()

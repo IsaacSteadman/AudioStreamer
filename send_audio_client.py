@@ -1,7 +1,8 @@
+from typing import List
 from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, error as socket_error, timeout as socket_timeout
 from queue import Queue
 from threading import Thread
-from audio_stream_common import st_init_audio_info, pyaudio, pick_device, load_settings
+from audio_stream_common import DevicePicker, st_init_audio_info, pyaudio, pick_device, load_settings
 
 
 audio = None
@@ -17,18 +18,35 @@ def read_thread(lst_sentinel):
         lst_sentinel[-1] = False
 
 
-def main():
+def main(argv: List[str]):
     global audio
     global sock
+    assert len(argv) in [0, 1]
+    if len(argv) == 1:
+        assert argv[0] in ["--use-defaults"]
+    use_defaults = len(argv) and argv[0] == "--use-defaults"
+    print("use_defaults =", use_defaults, "argv =", argv)
     settings = load_settings({
         "host": "",
         "port": "3123",
         "exception_on_overflow": True,
         "frames_per_block": None,
-        "max_input_channels": float("inf")
+        "max_input_channels": float("inf"),
+        "default_input_device_name_contains": ["CABLE Output"],
+        "getaddrinfo_af_arg": "AF_ANY",
     })
+    gai_af_arg = {
+        "AF_ANY": 0,
+        "AF_INET": AF_INET,
+        "AF_INET6": AF_INET6,
+    }[settings["getaddrinfo_af_arg"]]
     pa = pyaudio.PyAudio()
-    dev_info = pick_device(pa, "input")
+    dp = DevicePicker(pa, "input")
+    dp.find_new_default_device(
+        lambda name_contains, dev: name_contains in dev["name"],
+        settings["default_input_device_name_contains"]
+    )
+    dev_info = dp.pick(not use_defaults)
     print(dev_info)
     audio = pa.open(
         input=True,
@@ -37,20 +55,25 @@ def main():
         channels=min(dev_info["maxInputChannels"], settings["max_input_channels"]),
         format=pyaudio.paInt16
     )
-    host = input(f"Host [default {settings['host']}]: ")
+    host = ""
+    if not use_defaults:
+        host = input(f"Host [default {settings['host']}]: ")
     if len(host) == 0:
         host = settings["host"]
-    port = input(f"Port [default {settings['port']}]: ")
+    port = ""
+    if not use_defaults:
+        port = input(f"Port [default {settings['port']}]: ")
     if len(port) == 0:
         port = settings["port"]
     sock = None
-    for af, typ, proto, ca, sa in getaddrinfo(host, port, 0, SOCK_STREAM, IPPROTO_TCP):
+    for af, typ, proto, ca, sa in getaddrinfo(host, port, gai_af_arg, SOCK_STREAM, IPPROTO_TCP):
         if af not in [AF_INET, AF_INET6]:
             continue
         sock = socket(af, typ, proto)
         print(f"found configuration for resolved address {repr(sa)}")
         try:
             sock.connect(sa)
+            break
         except socket_error:
             sock = None
             print("  FAILED: could not connect")
@@ -62,10 +85,12 @@ def main():
     lst_sentinel = [q, audio, settings["exception_on_overflow"], frames_per_block, True]
     thrd = Thread(target=read_thread, args=(lst_sentinel,))
     thrd.start()
+    is_dropping = False
     try:
         while lst_sentinel[-1]:
             gotten = q.get()
-            if q.qsize() > 10:
+            if q.qsize() > 10 or is_dropping:
+                is_dropping = q.qsize() > 2
                 print(f"Dropping ({q.qsize()} items in the queue is too much")
             else:
                 sock.sendall(gotten)
@@ -80,4 +105,5 @@ def main():
 
 
 if __name__ == "__main__":
-    audio = main()
+    import sys
+    audio = main(sys.argv[1:])
