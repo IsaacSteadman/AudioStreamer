@@ -1,0 +1,8 @@
+** How to install dependencies on Windows **
+install python 3
+(python 3.6 pip has a pyaudio that does not need to
+be built from source and is easiest to install pyaudio on)
+pip install pyaudio
+** How to install dependencies on any other platform **
+install python 3
+pip install pyaudio
