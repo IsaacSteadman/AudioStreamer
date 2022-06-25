@@ -28,8 +28,8 @@ def main(argv: List[str]):
     use_defaults = len(argv) and argv[0] == "--use-defaults"
     print("use_defaults =", use_defaults, "argv =", argv)
     settings = load_settings({
-        "host": "",
-        "port": "3123",
+        "connect_host": "",
+        "connect_port": "3123",
         "exception_on_overflow": True,
         "frames_per_block": None,
         "max_input_channels": float("inf"),
@@ -51,14 +51,14 @@ def main(argv: List[str]):
     print(dev_info)
     host = ""
     if not use_defaults:
-        host = input(f"Host [default {settings['host']}]: ")
+        host = input(f"Host [default {settings['connect_host']}]: ")
     if len(host) == 0:
-        host = settings["host"]
+        host = settings["connect_host"]
     port = ""
     if not use_defaults:
-        port = input(f"Port [default {settings['port']}]: ")
+        port = input(f"Port [default {settings['connect_port']}]: ")
     if len(port) == 0:
-        port = settings["port"]
+        port = settings["connet_port"]
     retry = True
     while retry:
         retry = False

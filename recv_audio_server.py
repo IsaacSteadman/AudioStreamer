@@ -27,8 +27,8 @@ class App(object):
 
     def init(self, argv: List[str]):
         self.settings = load_settings({
-            "host": "",
-            "port": "3123",
+            "bind_host": "",
+            "bind_port": "3123",
             "default_output_device_name_contains": ["Speakers"]
         })
         dev_info = self.dp.pick(not (len(argv) and argv[0] == "--use-defaults"))
@@ -47,10 +47,10 @@ class App(object):
 
     def run_network(self):
         clients = self.clients
-        host = self.settings["host"]
+        host = self.settings["bind_host"]
         if host == "<HOSTNAME>":
             host = gethostname()
-        port = self.settings["port"]
+        port = self.settings["bind_port"]
         for af, typ, proto, ca, sa in getaddrinfo(host, port, 0, SOCK_STREAM, IPPROTO_TCP):
             if af not in [AF_INET, AF_INET6]:
                 continue
