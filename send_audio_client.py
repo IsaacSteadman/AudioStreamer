@@ -3,6 +3,8 @@ from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STR
 from queue import Queue, Empty
 from threading import Thread
 from audio_stream_common import DevicePicker, st_init_audio_info, pyaudio, pick_device, load_settings
+from array import array
+from sys import byteorder
 
 
 audio = None
@@ -35,6 +37,7 @@ def main(argv: List[str]):
         "max_input_channels": float("inf"),
         "default_input_device_name_contains": ["CABLE Output"],
         "getaddrinfo_af_arg": "AF_ANY",
+        "send_volume_percent": 100,
     })
     gai_af_arg = {
         "AF_ANY": 0,
@@ -59,6 +62,7 @@ def main(argv: List[str]):
         port = input(f"Port [default {settings['connect_port']}]: ")
     if len(port) == 0:
         port = settings["connet_port"]
+    send_volume_percent = settings["send_volume_percent"]
     retry = True
     while retry:
         retry = False
@@ -101,7 +105,18 @@ def main(argv: List[str]):
                     is_dropping = q.qsize() > 2
                     print(f"Dropping block, ({q.qsize()} items in the queue is too much)")
                 else:
-                    sock.sendall(gotten)
+                    if send_volume_percent != 100:
+                        arr = array('h', gotten)
+                        swap = byteorder == "big"
+                        if swap:
+                            arr.byteswap()
+                        for i in range(len(arr)):
+                            arr[i] = min(max(arr[i] * send_volume_percent / 100, -32768), 32767)
+                        if swap:
+                            arr.byteswap()
+                        sock.sendall(memoryview(arr))
+                    else:
+                        sock.sendall(gotten)
         finally:
             if not lst_sentinel[-1] and not lst_sentinel[-2]:
                 settings["frames_per_block"] = frames_per_block + 1
