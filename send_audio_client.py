@@ -111,7 +111,7 @@ def main(argv: List[str]):
                         if swap:
                             arr.byteswap()
                         for i in range(len(arr)):
-                            arr[i] = min(max(arr[i] * send_volume_percent / 100, -32768), 32767)
+                            arr[i] = int(min(max(arr[i] * send_volume_percent / 100, -32768), 32767))
                         if swap:
                             arr.byteswap()
                         sock.sendall(memoryview(arr))
