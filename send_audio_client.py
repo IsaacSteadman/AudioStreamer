@@ -61,7 +61,7 @@ def main(argv: List[str]):
     if not use_defaults:
         port = input(f"Port [default {settings['connect_port']}]: ")
     if len(port) == 0:
-        port = settings["connet_port"]
+        port = settings["connect_port"]
     send_volume_percent = settings["send_volume_percent"]
     retry = True
     while retry:
