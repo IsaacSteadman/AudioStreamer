@@ -1,5 +1,5 @@
 from typing import List
-from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, error as socket_error, timeout as socket_timeout
+from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, error as socket_error, timeout as socket_timeout, gethostname
 from queue import Queue
 from threading import Thread
 from audio_stream_common import DevicePicker, st_init_audio_info, pyaudio, pick_device, load_settings
@@ -48,6 +48,8 @@ class App(object):
     def run_network(self):
         clients = self.clients
         host = self.settings["host"]
+        if host == "<HOSTNAME>":
+            host = gethostname()
         port = self.settings["port"]
         for af, typ, proto, ca, sa in getaddrinfo(host, port, 0, SOCK_STREAM, IPPROTO_TCP):
             if af not in [AF_INET, AF_INET6]:

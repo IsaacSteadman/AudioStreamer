@@ -1,6 +1,6 @@
 from typing import List
 from socket import getaddrinfo, socket, AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, error as socket_error, timeout as socket_timeout
-from queue import Queue
+from queue import Queue, Empty
 from threading import Thread
 from audio_stream_common import DevicePicker, st_init_audio_info, pyaudio, pick_device, load_settings
 
@@ -14,6 +14,7 @@ def read_thread(lst_sentinel):
     try:
         while lst_sentinel[-1]:
             q.put(audio.read(frames_per_block, exception_on_overflow))
+            lst_sentinel[-2] = True
     finally:
         lst_sentinel[-1] = False
 
@@ -48,13 +49,6 @@ def main(argv: List[str]):
     )
     dev_info = dp.pick(not use_defaults)
     print(dev_info)
-    audio = pa.open(
-        input=True,
-        input_device_index=dev_info["index"],
-        rate=int(dev_info["defaultSampleRate"]),
-        channels=min(dev_info["maxInputChannels"], settings["max_input_channels"]),
-        format=pyaudio.paInt16
-    )
     host = ""
     if not use_defaults:
         host = input(f"Host [default {settings['host']}]: ")
@@ -65,42 +59,61 @@ def main(argv: List[str]):
         port = input(f"Port [default {settings['port']}]: ")
     if len(port) == 0:
         port = settings["port"]
-    sock = None
-    for af, typ, proto, ca, sa in getaddrinfo(host, port, gai_af_arg, SOCK_STREAM, IPPROTO_TCP):
-        if af not in [AF_INET, AF_INET6]:
-            continue
-        sock = socket(af, typ, proto)
-        print(f"found configuration for resolved address {repr(sa)}")
+    retry = True
+    while retry:
+        retry = False
+        sock = None
+        for af, typ, proto, ca, sa in getaddrinfo(host, port, gai_af_arg, SOCK_STREAM, IPPROTO_TCP):
+            if af not in [AF_INET, AF_INET6]:
+                continue
+            sock = socket(af, typ, proto)
+            print(f"found configuration for resolved address {repr(sa)}")
+            try:
+                sock.connect(sa)
+                break
+            except socket_error:
+                sock = None
+                print("  FAILED: could not connect")
+                continue
+        assert sock is not None, "Could not find or connect to any hosts"
+        audio = pa.open(
+            input=True,
+            input_device_index=dev_info["index"],
+            rate=int(dev_info["defaultSampleRate"]),
+            channels=min(dev_info["maxInputChannels"], settings["max_input_channels"]),
+            format=pyaudio.paInt16
+        )
+        frames_per_block = audio._frames_per_buffer if settings["frames_per_block"] is None else settings["frames_per_block"]
+        print(f"using frames_per_block = {frames_per_block}")
+        sock.sendall(st_init_audio_info.pack(audio._format, audio._channels - 1, audio._rate - 1, frames_per_block - 1))
+        q = Queue()
+        lst_sentinel = [q, audio, settings["exception_on_overflow"], frames_per_block, False, True]
+        thrd = Thread(target=read_thread, args=(lst_sentinel,))
+        thrd.start()
+        is_dropping = False
         try:
-            sock.connect(sa)
-            break
-        except socket_error:
-            sock = None
-            print("  FAILED: could not connect")
-            continue
-    assert sock is not None, "Could not find or connect to any hosts"
-    frames_per_block = audio._frames_per_buffer if settings["frames_per_block"] is None else settings["frames_per_block"]
-    sock.sendall(st_init_audio_info.pack(audio._format, audio._channels - 1, audio._rate - 1, frames_per_block - 1))
-    q = Queue()
-    lst_sentinel = [q, audio, settings["exception_on_overflow"], frames_per_block, True]
-    thrd = Thread(target=read_thread, args=(lst_sentinel,))
-    thrd.start()
-    is_dropping = False
-    try:
-        while lst_sentinel[-1]:
-            gotten = q.get()
-            if q.qsize() > 10 or is_dropping:
-                is_dropping = q.qsize() > 2
-                print(f"Dropping ({q.qsize()} items in the queue is too much")
-            else:
-                sock.sendall(gotten)
-    finally:
-        lst_sentinel[-1] = False
-        thrd.join()
-        try:
-            sock.close()
-        except:
-            pass
+            while lst_sentinel[-1]:
+                try:
+                    gotten = q.get(timeout=1)
+                except Empty:
+                    continue
+                if q.qsize() > 10 or is_dropping:
+                    is_dropping = q.qsize() > 2
+                    print(f"Dropping block, ({q.qsize()} items in the queue is too much)")
+                else:
+                    sock.sendall(gotten)
+        finally:
+            if not lst_sentinel[-1] and not lst_sentinel[-2]:
+                settings["frames_per_block"] = frames_per_block + 1
+                print("FAILURE: attempting reload with different frames_per_block")
+                retry = True
+            lst_sentinel[-1] = False
+            thrd.join()
+            try:
+                sock.close()
+            except:
+                pass
+            
     return audio
 
 
