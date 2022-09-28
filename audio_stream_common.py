@@ -28,7 +28,7 @@ def load_settings(defaults):
             dump(data, fl)
     return data
 
-st_init_audio_info = Struct("<HBHH")
+st_init_audio_info = Struct("<HBIH")
 
 class DevicePicker(object):
     def __init__(self, pa: pyaudio.PyAudio, typ: str):
